@@ -1,0 +1,8 @@
+{
+"POST":"create",
+"GET":"view",
+"PUT":"update",
+"DELETE":"delete"
+}
+
+

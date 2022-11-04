@@ -1,0 +1,14 @@
+[Install]
+WantedBy=multi-user.target
+
+
+[Unit]
+Description=Servicio de envio de email IDC
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/xentric_email
+ExecStart=/usr/lib/python3/.enviroments/xentric_email/bin/python /opt/xentric_email/run.py idc
+
+[Install]
+WantedBy=multi-user.target

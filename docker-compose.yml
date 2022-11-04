@@ -1,0 +1,33 @@
+version: "2.4"
+
+services:
+  api_lists:
+    build: .
+    restart: always
+    hostname: api_lists
+    container_name: api_lists
+    mem_limit: 256m
+    cpus: 2
+    ports:
+      - "5051:5050"
+    volumes:
+      - .:/opt/alloxentric
+    env_file:
+      - mongo-xentric_db-access.env
+      - keycloak-flask_api-access.env
+      - sentry-io-access.env
+      - logging-setup.env
+      - api.env
+    environment:
+      - PORT=5050
+    healthcheck:
+      test: curl --fail http://localhost:5050/health || exit 1
+      interval: 120s
+      retries: 5
+      start_period: 20s
+      timeout: 10s
+  
+networks:
+  default:
+    name: alloxentric.com
+    

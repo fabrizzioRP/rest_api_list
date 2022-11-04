@@ -1,0 +1,23 @@
+repos:
+-   repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v2.3.0
+    hooks:
+    -  id: check-added-large-files
+-   repo: local # Pylint debe correr en local
+    hooks:
+    - id: pylint
+      name: pylint
+      entry: pylint
+      language: system
+      types: [python]
+      args:
+        [
+          "-rn", # Only display messagespy
+          "-sn", # Don't display the score
+          "--disable=all",
+          "--enable=W,E,F", # Sólo errores y warnings
+        ]
+-   repo: https://github.com/PyCQA/bandit
+    rev: '1.7.4'
+    hooks:
+    - id: bandit

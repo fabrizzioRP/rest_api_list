@@ -1,0 +1,14 @@
+.dockerignore
+.git/
+.gitmodules
+.gitignore
+.pre-commit-config.yaml
+docker-compose.yml
+Dockerfile
+__pycache__/
+.vscode/
+*.env
+.env
+Makefile
+*.md
+logs/
