@@ -1,29 +1,19 @@
-from datetime import datetime
-from flask import jsonify, request,Response
-from flask_jwt_extended import jwt_required
-from flask_restful import Resource, reqparse
-from bson.objectid import ObjectId
-import werkzeug, os
-from bson import json_util
-import json
-import io
-from flask import session
-import hashlib
 from chardet import detect #Modulo no nativo
+from datetime import datetime
+from flask import jsonify, request, Response, make_response , session
+from flask_restful import Resource, reqparse
+from v1.models.list.configlist import ConfigListModel
+from v1.models.list.list import ListModel
 from v1.resources.auth.authorization import Auth
 from v1.resources.auth.dbDecorator import dbAccess
 from v1.resources.list.validacion_confgLists import configuracion
 from v1.resources.list.validacion_listas import validar_data, validar_nombres_lista, recuento, validar_registro
-from v1.models.list.list import ListModel
-from v1.models.list.configlist import ConfigListModel
-from v1.utils.validar_json import validar, campos_con_valores_unicos
-from mongoengine.context_managers import switch_db
-# from db import Mongo
-import pymongo
-import pandas as pd
-from flask import make_response  
-
+from v1.utils.validar_json import campos_con_valores_unicos
+import hashlib
+import io
 import logging
+import pandas as pd
+import werkzeug
 
 
 #Modelo de datos para configLists
@@ -46,53 +36,77 @@ class Lists(Resource):
     @Auth.authenticate
     @dbAccess.pymongoAccess
     def post(self, creation_date=None):
-        #Argumentos del request post
+        logging.info("Comienza el proceso de carga lista")
+        ## Argumentos del request post
         argumentos = list_post.parse_args(); 
         
-        #Verificar que id de lista no exista antes
+        ## Verificar que id de lista no exista antes
         id_list = argumentos["id_list"]
         valid, error = mongo_lists.idlist_unique(id_list)
         if not valid:
             return {'message':error}, 400
-        #mongo_lists.get(cliente, id_list)
+        
+        logging.debug("Paso Verificacion: de lista unica")
 
-        #Obtener configuracion de listas desde base de datos con id_config
+        ## Obtener configuracion de listas desde base de datos con id_config
         id_config = argumentos["id_config"]
-        #Obtener config_list
+        ## Obtener config_list
         configlist, valid, error = mongo_configlists.get(id_config)
         if not valid:
             return {'message':error}, 400
         
-        #Recuperar archivo 
+        logging.debug("Paso Verificacion: obtencion de la configList")
+        
+        ## Recuperar archivo 
         archivo = argumentos['file']
         filename = archivo.filename
-        #Verificar si archivo es csv o txt
+
+        ## Verificar si archivo es CSV o TXT
         formato = configlist["file_format"]
-        if not filename.endswith('.'+formato):
-            error = 'Archivo no tiene la extension "'+formato+'" que esta definida en la configuracion de listas.'
+        if not filename.endswith('.' + formato):
+            error = f'Archivo no tiene la extension {formato} que esta definida en la configuracion de listas.'
             return {'message':error}, 400
-        #Cargar archivo
+
+        logging.debug("Paso Verificacion: compatibilidad de extension de archivo");
+
+        ## Cargar archivo
         if archivo == "":
             return {'message':'Archivo no contiene datos.'}, 400
-        #Leer archivo
+
+        logging.debug("Paso Verificacion: Archivo tiene datos");
+
+        ## Leer archivo
         archivo = archivo.read()
-        #Obtener codec del archivo. Si archivo es muy grande 'detec' se pega, por eso esta el limite de 1000 caracteres.
-        if len(archivo)>10000: codec = detect(archivo[:10000])['encoding']
-        else: codec = detect(archivo)['encoding']
-        #Verificar que la codificacion del archivo es la que se configuro para esta carga de lista.
+
+        ##TODO: Obtener codec del archivo. Si archivo es muy grande 'detec' se pega, por eso esta el limite de 1000 caracteres.
+        if len(archivo) > 10000:
+            codec = detect( archivo[:10000] )['encoding']
+        else: 
+            codec = detect( archivo )['encoding']
+
+        ## Verificar que la codificacion del archivo es la que se configuro para esta carga de lista.
         if configlist['file_codec'] and codec != configlist['file_codec'] and codec != 'ascii':
             error = f"El archivo esta codificado en '{codec}'. Pero la configuracion de lista indica que la codificacion debe ser '{configlist['file_codec']}'. Debe cambiar la configuracion de listas o la codificacion del archivo."
             logging.error(error)
             return {'message':error}, 400
+
         elif configlist['file_codec'] is None:
             configlist['file_codec'] = codec
-        #Codificar archivo y convertir a lista
-        archivo = archivo.decode(configlist['file_codec']).replace('\r','').split('\n')
-        #validar nombres de campos de la lista
+            
+        logging.debug("Paso Verificacion: match del tipo de configuracion")
+
+        ## Codificar archivo y convertir a lista
+        archivo = archivo.decode( configlist['file_codec'] ).replace('\r','').split('\n')
+
+        ## Validar nombres de campos de la lista
         names_field, valid, error = validar_nombres_lista(archivo, configlist)
         if not valid:
+            logging.error(error)
             return {'message':error}, 400
-        #Validar datos del archivo
+
+        logging.debug("Paso Verificacion: match de los encabezados de la lista")
+
+        ## Validar datos del archivo
         logging.debug("archivo")
         logging.debug(archivo)
         logging.debug("id_list")
@@ -101,28 +115,42 @@ class Lists(Resource):
         logging.debug(configlist)
 
         try:
-            list_data = validar_data(archivo, id_list, configlist)        
+            list_data = validar_data(archivo, id_list, configlist) 
         except Exception as error:
-            logging.error("error: "+str(error))
-        #Guardar datos en mongo. Datos validos e invalidos.
+            logging.error("error: " + str(error))
+
+        ## Guardar datos en mongo. Datos validos e invalidos.
         valid, error = mongo_lists.load_datalist(list_data)
         if not valid:
+            logging.error(error)
             return {'message':error}, 500
-        #Retornar summary de carga.
+
+        logging.debug("Paso proceso: proceso de guardado de datos en DB")
+
+        ## Retornar summary de carga.
         validos, invalidos, total = recuento(list_data)
         summary = {'valid rows':validos, 'invalid rows':invalidos, 'total':total}
 
-        #Guardar propiedades de lista cargada
+        logging.debug(summary)
+
+        ## Guardar propiedades de lista cargada
         fecha = datetime.now()
-        if not creation_date: creation_date = fecha 
-        lista_propiedades = {'id_list':id_list, 'id_config':id_config, 'filename':filename,'creation date':creation_date, 'modification_date':fecha, 'names_field':names_field, 'summary':summary,"config":configlist}
-        valid, error = mongo_lists.register_list(lista_propiedades)
+
+        if not creation_date: 
+            creation_date = fecha 
+            lista_propiedades = {'id_list':id_list, 'id_config':id_config, 'filename':filename,'creation date':creation_date, 'modification_date':fecha, 'names_field':names_field, 'summary':summary,"config":configlist}
+            valid, error = mongo_lists.register_list(lista_propiedades)
+        
         if not valid:
+            logging.error(error)
             return {'message':error}, 500
         
         del lista_propiedades['_id']
 
-        return jsonify(lista_propiedades)
+        logging.info("Fin del proceso de carga lista")
+        return jsonify(lista_propiedades) , 201
+
+
 
     #http://localhost:5000/list                                 Devuelve todas las listas del cliente
     #http://localhost:5000/list/nombrelista?start=1&limit=10    Devuelve los datos de una lista
